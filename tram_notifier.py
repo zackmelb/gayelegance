@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Poll TramTracker for a stop and push an ntfy.sh notification when a tram is due soon.
+"""Poll TramTracker for a stop and message a Telegram bot when a tram is due soon.
 
 Configuration via environment variables:
-    TRAM_STOP_NO      Stop/platform ID, e.g. the "tid" from a QR code link (default: 4151)
-    TRAM_ROUTE_NO     Route number to filter on, 0 = all routes (default: 0)
-    NTFY_TOPIC        ntfy.sh topic to publish to (required)
-    NTFY_SERVER       ntfy server base URL (default: https://ntfy.sh)
-    NOTIFY_THRESHOLD  Notify when a tram is within this many minutes (default: 5)
-    POLL_SECONDS      How often to check for predictions (default: 60)
+    TRAM_STOP_NO        Stop/platform ID, e.g. the "tid" from a QR code link (default: 4151)
+    TRAM_ROUTE_NO       Route number to filter on, 0 = all routes (default: 0)
+    TELEGRAM_BOT_TOKEN  Token for your bot, from @BotFather (required)
+    TELEGRAM_CHAT_ID    Chat ID to message (required) - message @userinfobot to find yours
+    NOTIFY_THRESHOLD    Notify when a tram is within this many minutes (default: 5)
+    POLL_SECONDS        How often to check for predictions (default: 60)
 """
 import os
 import time
@@ -41,23 +41,26 @@ def minutes_until(predicted_arrival: dict) -> float | None:
     return delta.total_seconds() / 60
 
 
-def notify(server: str, topic: str, title: str, message: str) -> None:
-    requests.post(f"{server.rstrip('/')}/{topic}", data=message.encode("utf-8"),
-                  headers={"Title": title}, timeout=10)
+def notify(bot_token: str, chat_id: str, message: str) -> None:
+    requests.post(
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        json={"chat_id": chat_id, "text": message},
+        timeout=10,
+    )
 
 
 def main() -> None:
     stop_no = int(os.environ.get("TRAM_STOP_NO", "4151"))
     route_no = int(os.environ.get("TRAM_ROUTE_NO", "0"))
-    topic = os.environ["NTFY_TOPIC"]
-    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh")
+    bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
+    chat_id = os.environ["TELEGRAM_CHAT_ID"]
     threshold = float(os.environ.get("NOTIFY_THRESHOLD", "5"))
     poll_seconds = int(os.environ.get("POLL_SECONDS", "60"))
 
     already_notified: set[str] = set()
 
     print(f"Watching stop {stop_no} (route {route_no or 'any'}), "
-          f"notifying via {server}/{topic} when a tram is within {threshold:.0f} min")
+          f"messaging Telegram chat {chat_id} when a tram is within {threshold:.0f} min")
 
     while True:
         try:
@@ -75,8 +78,8 @@ def main() -> None:
 
                 route = prediction.get("RouteNo", "?")
                 destination = prediction.get("Destination", "Unknown destination")
-                notify(server, topic, "Tram approaching",
-                       f"Route {route} to {destination} arrives in {eta:.0f} min")
+                notify(bot_token, chat_id,
+                       f"🚊 Route {route} to {destination} arrives in {eta:.0f} min")
                 print(f"Notified: route {route} to {destination} in {eta:.1f} min")
 
             # Forget trams that have dropped off the predictions list (departed/arrived)
